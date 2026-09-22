@@ -56,12 +56,17 @@ import {
 	MAX_MCP_TOOLS_THRESHOLD,
 	countEnabledMcpTools,
 	providerIdentifiers,
+	type TaskComplexity,
+	escalateComplexity,
+	isComplexityEscalateOnConsecutiveMistakesEnabled,
+	resolveComplexityRoute,
 } from "@roo-code/types"
 import { TelemetryService } from "@roo-code/telemetry"
 import { CloudService } from "@roo-code/cloud"
 
 // api
 import { ApiHandler, ApiHandlerCreateMessageMetadata, buildApiHandler } from "../../api"
+import { appendComplexityRouteDecision } from "../../api/providers/complexity-route-log"
 import { ApiStream, GroundingSource } from "../../api/transform/stream"
 import { maybeRemoveImageBlocks } from "../../api/transform/image-cleaning"
 
@@ -373,13 +378,35 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	private autoApprovalTimeoutRef?: NodeJS.Timeout
 
 	// Tool Use
-	consecutiveMistakeCount: number = 0
+	private _consecutiveMistakeCount: number = 0
+	/**
+	 * Increments escalate the complexity floor when routing + escalate-on-mistakes are on.
+	 * Assignments that decrease/reset do not escalate.
+	 */
+	get consecutiveMistakeCount(): number {
+		return this._consecutiveMistakeCount
+	}
+	set consecutiveMistakeCount(value: number) {
+		const prev = this._consecutiveMistakeCount
+		this._consecutiveMistakeCount = value
+		if (value > prev) {
+			for (let i = 0; i < value - prev; i++) {
+				this.escalateComplexityOnConsecutiveMistake()
+			}
+		}
+	}
 	consecutiveMistakeLimit: number
 	consecutiveMistakeCountForApplyDiff: Map<string, number> = new Map()
 	consecutiveMistakeCountForEditFile: Map<string, number> = new Map()
 	consecutiveNoToolUseCount: number = 0
 	consecutiveNoAssistantMessagesCount: number = 0
 	toolUsage: ToolUsage = {}
+	/** Minimum complexity tier for subsequent routes (task-level escalate). */
+	complexityFloor?: TaskComplexity
+	/** Tiers already tried for this task (provider-error + mistake escalate). */
+	complexityTriedTiers: Set<TaskComplexity> = new Set()
+	/** Last selected tier estimate for escalate-from when floor is unset. */
+	private complexityLastSelected?: TaskComplexity
 
 	// Conversation message counts, summarized once per Task Completed
 	// installment instead of emitting a separate telemetry event per turn.
@@ -1789,6 +1816,56 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	}
 
 	/**
+	 * When consecutive mistakes climb and complexity routing is enabled, raise the
+	 * complexity floor one unused tier (simple → coding → architecture).
+	 */
+	private escalateComplexityOnConsecutiveMistake(): void {
+		if (!this.apiConfiguration.complexityRoutingEnabled) {
+			return
+		}
+		if (!isComplexityEscalateOnConsecutiveMistakesEnabled(this.apiConfiguration)) {
+			return
+		}
+
+		const from = this.complexityFloor ?? this.complexityLastSelected ?? "coding"
+		const next = escalateComplexity(from, this.complexityTriedTiers)
+		if (!next) {
+			return
+		}
+
+		this.complexityTriedTiers.add(from)
+		this.complexityTriedTiers.add(next)
+		this.complexityFloor = next
+		this.complexityLastSelected = next
+
+		const route = resolveComplexityRoute(next, this.apiConfiguration)
+		appendComplexityRouteDecision({
+			taskId: this.taskId,
+			mode: this._taskMode,
+			source: "escalate_consecutive_mistakes",
+			classified: from,
+			selected: next,
+			provider: route.provider,
+			modelId: route.modelId,
+			reasoningEffort: route.reasoningEffort,
+			triedTiers: [...this.complexityTriedTiers],
+		})
+	}
+
+	/** Metadata fields so ComplexityRoutingHandler respects task-level floor / tried. */
+	private complexityRoutingMetadata(): Pick<
+		ApiHandlerCreateMessageMetadata,
+		"complexityFloor" | "complexityTriedTiers"
+	> {
+		return {
+			...(this.complexityFloor ? { complexityFloor: this.complexityFloor } : {}),
+			...(this.complexityTriedTiers.size > 0
+				? { complexityTriedTiers: [...this.complexityTriedTiers] as TaskComplexity[] }
+				: {}),
+		}
+	}
+
+	/**
 	 * Updates the API configuration and rebuilds the API handler.
 	 * There is no tool-protocol switching or tool parser swapping.
 	 *
@@ -1920,6 +1997,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const metadata: ApiHandlerCreateMessageMetadata = {
 			mode,
 			taskId: this.taskId,
+			...this.complexityRoutingMetadata(),
 			...(this.currentRequestAbortController?.signal
 				? {
 						abortSignal: this.currentRequestAbortController.signal,
@@ -4446,6 +4524,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const metadata: ApiHandlerCreateMessageMetadata = {
 			mode,
 			taskId: this.taskId,
+			...this.complexityRoutingMetadata(),
 			...(this.currentRequestAbortController?.signal
 				? {
 						abortSignal: this.currentRequestAbortController.signal,
@@ -4877,6 +4956,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			taskId: this.taskId,
 			suppressPreviousResponseId: this.skipPrevResponseIdOnce,
 			abortSignal,
+			...this.complexityRoutingMetadata(),
 			// Include tools whenever they are present.
 			...(shouldIncludeTools
 				? {

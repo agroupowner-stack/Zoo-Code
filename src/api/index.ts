@@ -33,6 +33,7 @@ import {
 	UnboundHandler,
 	FakeAIHandler,
 	XAIHandler,
+	ComplexityRoutingHandler,
 	LiteLLMHandler,
 	QwenCodeHandler,
 	SambaNovaHandler,
@@ -115,6 +116,20 @@ export interface ApiHandlerCreateMessageMetadata {
 	 * when the user clicks stop, preventing wasted API tokens/compute on the provider side.
 	 */
 	abortSignal?: AbortSignal
+	/**
+	 * Optional explicit complexity tier for the complexity model router (xAI).
+	 * When set, overrides mode/heuristic classification for that request.
+	 */
+	complexityOverride?: "simple" | "coding" | "architecture"
+	/**
+	 * Minimum complexity tier for this request (task-level escalate floor).
+	 * After classify, the selected tier is max(classified, floor).
+	 */
+	complexityFloor?: "simple" | "coding" | "architecture"
+	/**
+	 * Tiers already tried for this task/call (used to skip on escalate).
+	 */
+	complexityTriedTiers?: Array<"simple" | "coding" | "architecture">
 }
 
 export interface ApiHandler {
@@ -213,7 +228,7 @@ export function buildApiHandler(configuration: ProviderSettings): ApiHandler {
 		case providerIdentifiers.fakeAi:
 			return new FakeAIHandler(options)
 		case providerIdentifiers.xai:
-			return new XAIHandler(options)
+			return options.complexityRoutingEnabled ? new ComplexityRoutingHandler(options) : new XAIHandler(options)
 		case providerIdentifiers.litellm:
 			return new LiteLLMHandler(options)
 		case providerIdentifiers.sambanova:
