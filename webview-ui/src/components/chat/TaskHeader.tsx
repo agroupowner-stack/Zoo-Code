@@ -63,7 +63,7 @@ const TaskHeader = ({
 	todos,
 }: TaskHeaderProps) => {
 	const { t } = useTranslation()
-	const { apiConfiguration, currentTaskItem } = useExtensionState()
+	const { apiConfiguration, currentTaskItem, lastComplexityRoute } = useExtensionState()
 	const { id: modelId, info: model } = useSelectedModel(apiConfiguration)
 	const [isTaskExpanded, setIsTaskExpanded] = useState(false)
 
@@ -303,6 +303,20 @@ const TaskHeader = ({
 									</StandardTooltip>
 								</>
 							)}
+							{apiConfiguration?.complexityRoutingEnabled && lastComplexityRoute && (
+								<>
+									<span>·</span>
+									<span
+										className="font-mono text-[0.85em] truncate max-w-[14rem]"
+										data-testid="complexity-route-label"
+										title={t("chat:task.complexityRouteTooltip", {
+											tier: lastComplexityRoute.selected,
+											model: lastComplexityRoute.modelId,
+										})}>
+										{lastComplexityRoute.selected}/{lastComplexityRoute.modelId}
+									</span>
+								</>
+							)}
 						</div>
 						<div
 							className="flex items-center gap-1 ml-8 w-60 min-w-[120px] shrink"
@@ -441,6 +455,19 @@ const TaskHeader = ({
 														)}
 													</span>
 												</StandardTooltip>
+											</td>
+										</tr>
+									)}
+
+									{apiConfiguration?.complexityRoutingEnabled && lastComplexityRoute && (
+										<tr>
+											<th className="font-medium text-left align-top w-1 whitespace-nowrap pr-3 h-[24px]">
+												{t("chat:task.complexityRoute")}
+											</th>
+											<td
+												className="font-light align-top font-mono text-[0.9em]"
+												data-testid="complexity-route-label-expanded">
+												{lastComplexityRoute.selected} · {lastComplexityRoute.modelId}
 											</td>
 										</tr>
 									)}

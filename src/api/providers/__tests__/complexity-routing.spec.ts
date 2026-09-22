@@ -18,7 +18,7 @@ vitest.mock("openai", async () => {
 
 import { DEFAULT_COMPLEXITY_CODING_MODEL, DEFAULT_COMPLEXITY_SIMPLE_MODEL, providerIdentifiers } from "@roo-code/types"
 
-import { ComplexityRoutingHandler } from "../complexity-routing"
+import { ComplexityRoutingHandler, extractUserIntentTextForClassification } from "../complexity-routing"
 import {
 	appendComplexityRouteDecision,
 	clearComplexityRouteDecisions,
@@ -291,5 +291,148 @@ describe("complexity-route-log ring buffer", () => {
 		expect(forA.map((e) => e.selected)).toEqual(["simple", "coding"])
 		expect(getComplexityRouteDecisions({ taskId: "b" })).toHaveLength(1)
 		expect(getComplexityRouteDecisions()).toHaveLength(3)
+	})
+})
+
+describe("extractUserIntentTextForClassification", () => {
+	it("prefers <user_message> content over wrappers", () => {
+		const raw = `<user_message>\nчто такое рекурсия?\n</user_message>\n<environment_details>\nCreate one with update_todo_list\n</environment_details>`
+		expect(extractUserIntentTextForClassification(raw)).toBe("что такое рекурсия?")
+	})
+
+	it("strips <environment_details> when no user_message wrapper", () => {
+		const raw = `что такое рекурсия?\n<environment_details>\n# Current Time\nCreate one with update_todo_list\n</environment_details>`
+		expect(extractUserIntentTextForClassification(raw)).toBe("что такое рекурсия?")
+	})
+})
+
+describe("ComplexityRoutingHandler — ask/env creation leak fix", () => {
+	beforeEach(() => {
+		clearAllMocks()
+		mockResponsesCreate.mockClear()
+		mockCaptureException.mockClear()
+		clearComplexityRouteDecisions()
+	})
+
+	const envDetailsWithCreate = `<environment_details>
+# Current Time
+Create one with update_todo_list if needed
+</environment_details>`
+
+	it("Ask + Russian short alone → simple", async () => {
+		const handler = new ComplexityRoutingHandler({
+			complexityRoutingEnabled: true,
+			xaiApiKey: "test-key",
+		})
+		mockResponsesCreate.mockResolvedValueOnce(asyncStreamFrom([]))
+
+		const stream = handler.createMessage("system", [{ role: "user", content: "что такое рекурсия?" }], {
+			taskId: "ask-ru",
+			mode: "ask",
+		})
+		await stream.next()
+
+		expect(mockResponsesCreate).toHaveBeenCalledWith(
+			expect.objectContaining({ model: DEFAULT_COMPLEXITY_SIMPLE_MODEL }),
+		)
+	})
+
+	it("Ask + Russian short + env details with Create → still simple", async () => {
+		const handler = new ComplexityRoutingHandler({
+			complexityRoutingEnabled: true,
+			xaiApiKey: "test-key",
+		})
+		mockResponsesCreate.mockResolvedValueOnce(asyncStreamFrom([]))
+
+		const content = [
+			{ type: "text" as const, text: "<user_message>\nчто такое рекурсия?\n</user_message>" },
+			{ type: "text" as const, text: envDetailsWithCreate },
+		]
+
+		const stream = handler.createMessage("system", [{ role: "user", content }], {
+			taskId: "ask-ru-env",
+			mode: "ask",
+		})
+		await stream.next()
+
+		expect(mockResponsesCreate).toHaveBeenCalledWith(
+			expect.objectContaining({ model: DEFAULT_COMPLEXITY_SIMPLE_MODEL }),
+		)
+		expect(getComplexityRouteDecisions({ taskId: "ask-ru-env" })[0]).toMatchObject({
+			classified: "simple",
+			selected: "simple",
+		})
+	})
+
+	it("Ask + English edit intent in user_message → coding", async () => {
+		const handler = new ComplexityRoutingHandler({
+			complexityRoutingEnabled: true,
+			xaiApiKey: "test-key",
+		})
+		mockResponsesCreate.mockResolvedValueOnce(asyncStreamFrom([]))
+
+		const content = [
+			{
+				type: "text" as const,
+				text: "<user_message>\nCreate a helper to format dates\n</user_message>",
+			},
+			{ type: "text" as const, text: envDetailsWithCreate },
+		]
+
+		const stream = handler.createMessage("system", [{ role: "user", content }], {
+			taskId: "ask-edit",
+			mode: "ask",
+		})
+		await stream.next()
+
+		expect(mockResponsesCreate).toHaveBeenCalledWith(
+			expect.objectContaining({ model: DEFAULT_COMPLEXITY_CODING_MODEL }),
+		)
+	})
+
+	it("code mode → coding", async () => {
+		const handler = new ComplexityRoutingHandler({
+			complexityRoutingEnabled: true,
+			xaiApiKey: "test-key",
+		})
+		mockResponsesCreate.mockResolvedValueOnce(asyncStreamFrom([]))
+
+		const stream = handler.createMessage(
+			"system",
+			[{ role: "user", content: "<user_message>\nнапиши функцию сортировки\n</user_message>" }],
+			{ taskId: "code-mode", mode: "code" },
+		)
+		await stream.next()
+
+		expect(mockResponsesCreate).toHaveBeenCalledWith(
+			expect.objectContaining({ model: DEFAULT_COMPLEXITY_CODING_MODEL }),
+		)
+	})
+
+	it("architect mode → architecture", async () => {
+		const handler = new ComplexityRoutingHandler({
+			complexityRoutingEnabled: true,
+			xaiApiKey: "test-key",
+		})
+		mockResponsesCreate.mockResolvedValueOnce(asyncStreamFrom([]))
+
+		const stream = handler.createMessage(
+			"system",
+			[
+				{
+					role: "user",
+					content: "<user_message>\nспроектируй модуль кэширования\n</user_message>",
+				},
+			],
+			{ taskId: "arch-mode", mode: "architect" },
+		)
+		await stream.next()
+
+		expect(mockResponsesCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: "grok-4.6",
+				reasoning: expect.objectContaining({ effort: "high" }),
+			}),
+		)
 	})
 })

@@ -9,6 +9,8 @@
 		"tokens": "Tokens",
 		"cache": "Cache",
 		"apiCost": "API Cost",
+		"complexityRoute": "Route",
+		"complexityRouteTooltip": "Complexity tier {{tier}} → {{model}}",
 		"size": "Size",
 		"condenseContext": "Intelligently condense context",
 		"contextWindow": "Context Length",

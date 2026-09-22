@@ -107,6 +107,7 @@ import { setPanel } from "../../activate/registerCommands"
 import { t } from "../../i18n"
 
 import { buildApiHandler } from "../../api"
+import { getLatestComplexityRouteDecision } from "../../api/providers/complexity-route-log"
 import { forceFullModelDetailsLoad, hasLoadedFullDetails } from "../../api/providers/fetchers/lmstudio"
 
 import { ContextProxy } from "../config/ContextProxy"
@@ -2911,6 +2912,14 @@ export class ClineProvider
 			platform: process.platform,
 			arch: process.arch,
 			debug: vscode.workspace.getConfiguration(Package.name).get<boolean>("debug", false),
+			lastComplexityRoute: (() => {
+				const cfg = currentTaskApiConfiguration ?? apiConfiguration
+				if (!cfg?.complexityRoutingEnabled || !currentTask?.taskId) {
+					return undefined
+				}
+				const latest = getLatestComplexityRouteDecision({ taskId: currentTask.taskId })
+				return latest ? { selected: latest.selected, modelId: latest.modelId } : undefined
+			})(),
 		}
 	}
 

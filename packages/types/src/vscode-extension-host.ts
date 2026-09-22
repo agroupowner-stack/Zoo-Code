@@ -3,6 +3,7 @@ import { z } from "zod"
 import type { GlobalSettings, RooCodeSettings } from "./global-settings.js"
 import type { ProviderSettings, ProviderSettingsEntry } from "./provider-settings.js"
 import type { HistoryItem } from "./history.js"
+import type { TaskComplexity } from "./complexity-routing.js"
 import type { ModeConfig, PromptComponent } from "./mode.js"
 import type { Experiments } from "./experiment.js"
 import type { ClineMessage, QueuedMessage } from "./message.js"
@@ -432,6 +433,15 @@ export type ExtensionState = Pick<
 	 * (captured during async getStateToPostToWebview) from overwriting newer messages.
 	 */
 	clineMessagesSeq?: number
+
+	/**
+	 * Last complexity-router decision for the current task (compact UI label).
+	 * Present only when complexityRoutingEnabled and at least one route ran.
+	 */
+	lastComplexityRoute?: {
+		selected: TaskComplexity
+		modelId: string
+	}
 }
 
 export interface Command {

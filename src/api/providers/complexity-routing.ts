@@ -22,6 +22,10 @@ import { XAIHandler } from "./xai"
 import { AnthropicHandler } from "./anthropic"
 import { appendComplexityRouteDecision } from "./complexity-route-log"
 
+/**
+ * Full text of the latest user turn (all text blocks joined).
+ * Kept for callers that need the complete payload including Zoo wrappers.
+ */
 function extractLatestUserText(messages: Anthropic.Messages.MessageParam[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i]
@@ -44,6 +48,32 @@ function extractLatestUserText(messages: Anthropic.Messages.MessageParam[]): str
 		}
 	}
 	return ""
+}
+
+/**
+ * User-intent text for complexity classification only.
+ * Prefer `<user_message>...</user_message>`; otherwise strip service wrappers
+ * (notably `<environment_details>`) so injected English like "Create one with
+ * update_todo_list" cannot trip FILE_EDIT_INTENT and leak Ask→simple to coding.
+ */
+export function extractUserIntentTextForClassification(raw: string): string {
+	if (!raw) {
+		return ""
+	}
+
+	const userMessageMatch = raw.match(/<user_message>\s*([\s\S]*?)\s*<\/user_message>/i)
+	if (userMessageMatch) {
+		return userMessageMatch[1].trim()
+	}
+
+	return raw
+		.replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
+		.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "")
+		.trim()
+}
+
+function extractLatestUserIntentForClassification(messages: Anthropic.Messages.MessageParam[]): string {
+	return extractUserIntentTextForClassification(extractLatestUserText(messages))
 }
 
 function isUserAbortError(error: unknown, abortSignal?: AbortSignal): boolean {
@@ -206,7 +236,7 @@ export class ComplexityRoutingHandler extends BaseProvider implements SingleComp
 		metadata?: ApiHandlerCreateMessageMetadata,
 	): ApiStream {
 		const settings = this.routingSettings()
-		const message = extractLatestUserText(messages)
+		const message = extractLatestUserIntentForClassification(messages)
 		const {
 			classified,
 			selected: initialSelected,
@@ -271,7 +301,7 @@ export class ComplexityRoutingHandler extends BaseProvider implements SingleComp
 			selected: initialSelected,
 			source: initialSource,
 		} = this.classifyAndSelect({
-			message: prompt,
+			message: extractUserIntentTextForClassification(prompt),
 		})
 
 		const tried = new Set<TaskComplexity>()

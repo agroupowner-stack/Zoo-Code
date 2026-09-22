@@ -67,3 +67,14 @@ Consumers (B/C): `getComplexityRouteDecisions({ taskId? })` from `src/api/provid
 ## Implementation order
 
 **A → B → C** (see `PRODUCT.md`): A = catalog + complexity router on xAI **with escalate + structured decisions**; B = selective context; C = cost dashboard.
+
+## Classification input hygiene (2026-09-22)
+
+`ComplexityRoutingHandler` classifies on **user intent only** via `extractUserIntentTextForClassification`:
+
+1. Prefer text inside `<user_message>...</user_message>`.
+2. Else strip `<environment_details>...</environment_details>` (and `<system-reminder>`).
+
+This prevents injected English in environment details (e.g. "Create one with update_todo_list") from tripping `FILE_EDIT_INTENT` and leaking Ask→simple into the coding tier.
+
+Escalate / override / floor / architect behavior is unchanged. The webview shows a compact `tier/modelId` label from `lastComplexityRoute` when routing is enabled (not a full cost dashboard — that remains piece C).

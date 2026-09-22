@@ -68,15 +68,21 @@
 ### UI vs piece C
 
 - Есть usage/cost (например `$0.03`) и token/context metrics.
-- **Нет** явного per-task tier / routed-model indicator (dropdown профиля ≠ фактический route).
+- Compact per-task tier/routed-model label next to cost/tokens when routing enabled (`lastComplexityRoute`).
 - Отдельного complexity-routing toggle в UI не найдено (enable через profile flag / env).
 - **Вывод:** кусок C (cost/tier dashboard) по-прежнему полезен; baseline уже показывает cost, но не route decisions.
 
 ### Follow-ups (не блокер для B)
 
-1. Классифицировать только `<user_message>` (или strip `environment_details`) — иначе live Ask почти никогда не попадает в simple/Fast.
-2. Поверхностный Fast-smoke: короткий Ask без edit-intent _после_ фикса extract, либо `metadata.complexityOverride: "simple"`.
-3. `getComplexityRouteDecisions()` / `[complexity-router]` JSON в Output channel — в этом прогоне ring buffer не вытянули; источник истины — `<model>` в task history + Architect→`grok-4.6`.
+1. ~~Классифицировать только `<user_message>` (или strip `environment_details`)~~ — **done** (`extractUserIntentTextForClassification`).
+2. Compact tier/routed-model label next to cost/tokens — **done** (`lastComplexityRoute` → TaskHeader).
+3. `getComplexityRouteDecisions()` / `[complexity-router]` JSON — still available for B/C; UI now shows latest decision when routing is on.
+
+## Fix (2026-09-22) — classifier money leak + compact route label
+
+- Classification now uses `extractUserIntentTextForClassification`: prefer `<user_message>`, else strip `<environment_details>` / `<system-reminder>` so Ask+short no longer leaks to coding when env English contains "Create".
+- Compact tier/model label in TaskHeader (`lastComplexityRoute` from route-decision ring buffer) when `complexityRoutingEnabled`.
+- Still do **not** start piece B here.
 
 ## Как открыть завтра
 

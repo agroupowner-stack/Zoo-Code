@@ -43,3 +43,11 @@ export function getComplexityRouteDecisions(filter?: { taskId?: string }): Compl
 	}
 	return buffer.filter((e) => e.taskId === filter.taskId)
 }
+
+/** Most recent decision, optionally scoped to a task. */
+export function getLatestComplexityRouteDecision(filter?: {
+	taskId?: string
+}): ComplexityRouteDecisionEvent | undefined {
+	const events = getComplexityRouteDecisions(filter)
+	return events.length ? events[events.length - 1] : undefined
+}
