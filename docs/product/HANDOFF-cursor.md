@@ -55,6 +55,29 @@
 - Runtime Zoo UI: выставить `xaiApiKey` в профиле xAI и `complexityRoutingEnabled: true`
 - Не коммитить `.env`
 
+## Live validation (Extension Host, 2026-09-22)
+
+Прогон на box: Extension Development Host + workspace `/workspace/router-live-fixture`, xAI profile, router через `COMPLEXITY_ROUTING_ENABLED=1` (временный env-патч; **не** в ветке — откатан).
+
+| Mode      | Prompt                                                  | Observed model in task env `<model>`                      | Notes                                                                                                                                                                                                                                      |
+| --------- | ------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ask       | `добавь console.log в эту функцию`                      | `grok-build-0.1` (coding)                                 | API OK; Zoo хотел switch→Code + edit `sample.ts` (denied). **Не Fast:** `extractLatestUserText` склеивает user message + `environment_details`; в details есть англ. `Create…`, срабатывает `FILE_EDIT_INTENT` → ask→simple не выбирается. |
+| Code      | `напиши функцию сортировки массива объектов по дате`    | `grok-build-0.1`                                          | API OK; edit denied. Matches coding tier.                                                                                                                                                                                                  |
+| Architect | `спроектируй модуль кэширования с TTL для API-запросов` | first round default `grok-build-0.1`, then **`grok-4.6`** | Доказывает, что ComplexityRouterHandler реально роутит.                                                                                                                                                                                    |
+
+### UI vs piece C
+
+- Есть usage/cost (например `$0.03`) и token/context metrics.
+- **Нет** явного per-task tier / routed-model indicator (dropdown профиля ≠ фактический route).
+- Отдельного complexity-routing toggle в UI не найдено (enable через profile flag / env).
+- **Вывод:** кусок C (cost/tier dashboard) по-прежнему полезен; baseline уже показывает cost, но не route decisions.
+
+### Follow-ups (не блокер для B)
+
+1. Классифицировать только `<user_message>` (или strip `environment_details`) — иначе live Ask почти никогда не попадает в simple/Fast.
+2. Поверхностный Fast-smoke: короткий Ask без edit-intent _после_ фикса extract, либо `metadata.complexityOverride: "simple"`.
+3. `getComplexityRouteDecisions()` / `[complexity-router]` JSON в Output channel — в этом прогоне ring buffer не вытянули; источник истины — `<model>` в task history + Architect→`grok-4.6`.
+
 ## Как открыть завтра
 
 ```text
