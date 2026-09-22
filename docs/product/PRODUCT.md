@@ -1,58 +1,29 @@
 # PRODUCT — Форк под Grok API: план и контроль стоимости
 
-Источник: бриф от 22 сентября 2026 (вложение).  
-База исполнения: Zoo Code `@baseline/v3.82.2` → https://github.com/agroupowner-stack/Zoo-Code
-
-## Цель
-
-Не копировать Cursor как продукт. Построить свою версию агента на готовом runtime (tool-use, files, checkpoints, MCP) с **осознанным контролем самого дорогого места — контекста и выбора модели**.
+Источник: бриф от 22 сентября 2026.  
+База: Zoo Code `@baseline/v3.82.2` → форк https://github.com/agroupowner-stack/Zoo-Code  
+Рабочая копия на десктопе: `D:\Zoo-Code` (ветка `feat/complexity-router`).
 
 ## Порядок внедрения
 
-**A → B → C** (зафиксировано; не менять без ADR):
+**A → B → C** (зафиксировано). Сейчас остановка после **A**; **B и C не начинать в этом handoff** — selective context отдаётся Cursor.
 
-| Slice | Содержание                                                                                                                                                                                    | Статус                    |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| **A** | Catalog gap-fill + complexity router on xAI, **including upward escalate** (provider error + consecutive mistakes) and **structured route decisions** for B/C (`getComplexityRouteDecisions`) | in progress / this branch |
-| **B** | Selective context                                                                                                                                                                             | later                     |
-| **C** | Cost dashboard                                                                                                                                                                                | later                     |
+## Статус кусков
 
-B/C нечем валидировать без реальных вызовов из A. Не реализуем B/C в том же PR, что A.
+### A — Grok provider + complexity router — **ВЫПОЛНЕН** (код + origin)
 
-**A (this branch) now includes:** escalate ladder `simple → coding → architecture` + structured decision log (ring buffer + `[complexity-router]` JSON lines) so B/C can consume routing history without a telemetry rewrite.
+Сделано:
 
-## Scope (5 шагов)
+- Использован существующий `src/api/providers/xai.ts`
+- Каталог: `grok-build-0.1`, `grok-4.6`
+- Opt-in `complexityRoutingEnabled` на xAI-профиле
+- Тиры: simple → `grok-4-1-fast-non-reasoning`; coding → `grok-build-0.1`; architecture → `grok-4.6`
+- Классификация: mode + эвристики + `metadata.complexityOverride`
+- Escalate `simple → coding → architecture` (ошибка провайдера + consecutive mistakes)
+- Структурированные логи: `getComplexityRouteDecisions()` + `[complexity-router] {JSON}`
+- Ветка: `feat/complexity-router` → origin **`2fad2b330`**
+- Фокус-тесты роутера: зелёные. Полный `pnpm test` на Windows: красный из‑за worktree timeouts в `@roo-code/core` (не регрессия A)
 
-1. **Форк базы** — Zoo/Roo runtime as-is (уже: форк + pin `v3.82.2` + локальный checkout + `pnpm install`).
-2. **Роутинг моделей по сложности** — конфигурируемый provider-router:
-    - простые правки / автодополнение → Grok 4.1 Fast
-    - обычный кодинг → Grok Build 0.1
-    - сложная архитектура → Grok 4.6 high или Claude по требованию  
-      Главный рычаг экономии.
-3. **Selective context** (ключевая фича) — релевантные файлы по grep/симптомам + summary истории вместо полного лога. Атака на cache-read раздувание (700M+ токенов в реальных данных Cursor).
-4. **Дашборд стоимости в UI** — токены и $ на каждый шаг (как у Cline), ловить дорогие вызовы сразу.
-5. **Пилот на одном проекте** — неделя, сравнение счёта xAI vs Cursor; потом расширять.
+### B — Selective context — **НЕ НАЧАТ** (следующий для Cursor)
 
-## Ожидания по усилиям
-
-| Кусок                            | Оценка                                             |
-| -------------------------------- | -------------------------------------------------- |
-| Форк + Grok provider             | часы (штатный паттерн провайдера)                  |
-| Роутинг по сложности             | 1–2 дня в паре с агентом                           |
-| Selective context                | самая тяжёлая архитектура; риск under/over-context |
-| Стабилизация на реальном проекте | ещё 1–2 недели                                     |
-
-AI закроет ~70–80% кода (конфиги, роутер, адаптеры, UI-счётчик); интеграция и отладка — руками/вместе.
-
-## Не делаем на старте
-
-- Миграция всех параллельных проектов сразу
-- Перепись Task / checkpoints / MCP
-- «Максимум качества любой ценой» без бюджета контекста
-
-## Success metrics (пилот)
-
-- $/task и tokens/task vs Cursor baseline на том же проекте
-- Доля шагов на Fast / Build / High
-- Доля cache-read / размер контекста на шаг (до/после selective context)
-- Субъективное качество: не деградировало ли решение задач
+### C — Cost dashboard — **НЕ НАЧАТ** (после B)
